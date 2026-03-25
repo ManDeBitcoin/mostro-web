@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { sha256 } from '@noble/hashes/sha256';
 import { signAsync } from '@noble/secp256k1';
+import { useNostr, useNostrSubscription } from '@/lib/nostr';
+import type { Event } from 'nostr-tools';
 
 interface OrderPayload {
   type: string;
@@ -27,8 +29,39 @@ export function useMostroOrder() {
   const [status, setStatus] = useState<string | null>(null);
   const [latestOrder, setLatestOrder] = useState<NostrEvent | null>(null);
   const [relayResponse, setRelayResponse] = useState<NostrEvent | null>(null);
+  const [waitingForEventId, setWaitingForEventId] = useState<string | null>(null);
+  
+  const { publish, isConnected } = useNostr();
 
-  const sendOrder = async (order: OrderPayload): Promise<NostrEvent | null> => {
+  // Subscribe to order responses when we're waiting for one
+  const responseFilters = useMemo(() => {
+    if (!waitingForEventId) return [];
+    return [{
+      kinds: [23196],
+      '#e': [waitingForEventId],
+    }];
+  }, [waitingForEventId]);
+
+  const { events: responses } = useNostrSubscription<Event>(responseFilters, {
+    enabled: !!waitingForEventId,
+  });
+
+  // Handle response when it comes in
+  useEffect(() => {
+    if (responses.length > 0 && waitingForEventId) {
+      const response = responses[0] as unknown as NostrEvent;
+      setRelayResponse(response);
+      setStatus('Order confirmed by Mostro');
+      setWaitingForEventId(null);
+    }
+  }, [responses, waitingForEventId]);
+
+  const sendOrder = useCallback(async (order: OrderPayload): Promise<string | null> => {
+    if (!isConnected) {
+      setStatus('Not connected to relay');
+      return null;
+    }
+
     const privkey = localStorage.getItem('nostr-privkey');
     const pubkey = localStorage.getItem('nostr-pubkey');
 
@@ -36,6 +69,8 @@ export function useMostroOrder() {
       setStatus('Missing keys');
       return null;
     }
+
+    setStatus('Creating order...');
 
     const now = Math.floor(Date.now() / 1000);
     const orderId = crypto.randomUUID();
@@ -63,23 +98,23 @@ export function useMostroOrder() {
       },
     ];
 
-    const rumorEncoded = JSON.stringify(rumor)
-    const rumorHash = sha256(new TextEncoder().encode(rumorEncoded))
-    const signature = await signAsync(rumorHash, hexToBytes(privkey))
-    const r = signature.r.toString(16).padStart(64, '0')
-    const s = signature.s.toString(16).padStart(64, '0')
-    const fullSig = bytesToHex(new Uint8Array([...hexToBytes(r), ...hexToBytes(s)]))
+    const rumorEncoded = JSON.stringify(rumor);
+    const rumorHash = sha256(new TextEncoder().encode(rumorEncoded));
+    const signature = await signAsync(rumorHash, hexToBytes(privkey));
+    const r = signature.r.toString(16).padStart(64, '0');
+    const s = signature.s.toString(16).padStart(64, '0');
+    const fullSig = bytesToHex(new Uint8Array([...hexToBytes(r), ...hexToBytes(s)]));
 
-    rumor.push(`1 ${fullSig}`)
-    const content = JSON.stringify(rumor)
+    rumor.push(`1 ${fullSig}`);
+    const content = JSON.stringify(rumor);
 
-    const serialized = [0, pubkey, now, 38383, tags, content]
-    const eventHash = sha256(new TextEncoder().encode(JSON.stringify(serialized)))
-    const id = bytesToHex(eventHash)
-    const eventSigRaw = await signAsync(eventHash, hexToBytes(privkey))
-    const r2 = eventSigRaw.r.toString(16).padStart(64, '0')
-    const s2 = eventSigRaw.s.toString(16).padStart(64, '0')
-    const sig = bytesToHex(new Uint8Array([...hexToBytes(r2), ...hexToBytes(s2)]))
+    const serialized = [0, pubkey, now, 38383, tags, content];
+    const eventHash = sha256(new TextEncoder().encode(JSON.stringify(serialized)));
+    const id = bytesToHex(eventHash);
+    const eventSigRaw = await signAsync(eventHash, hexToBytes(privkey));
+    const r2 = eventSigRaw.r.toString(16).padStart(64, '0');
+    const s2 = eventSigRaw.s.toString(16).padStart(64, '0');
+    const sig = bytesToHex(new Uint8Array([...hexToBytes(r2), ...hexToBytes(s2)]));
 
     const event: NostrEvent = {
       kind: 38383,
@@ -91,48 +126,31 @@ export function useMostroOrder() {
       sig,
     };
 
-    const RELAY = process.env.NEXT_PUBLIC_RELAY_URL;
-    if (!RELAY) {
-      setStatus('Relay URL is not defined');
-      return null;
-    }
-
-    const socket = new WebSocket(RELAY);
-
-    socket.onopen = () => {
-      socket.send(JSON.stringify(['EVENT', event]));
+    try {
+      setStatus('Publishing order...');
+      await publish(event as unknown as Event);
+      
       setStatus('Order sent');
       setLatestOrder(event);
+      
+      // Start listening for response
+      setWaitingForEventId(event.id);
+      
+      return event.id;
+    } catch (error) {
+      console.error('Failed to publish order:', error);
+      setStatus('Failed to send order');
+      return null;
+    }
+  }, [isConnected, publish]);
 
-      socket.send(
-        JSON.stringify([
-          'REQ',
-          'order-response',
-          {
-            kinds: [23196],
-            '#e': [event.id],
-          },
-        ])
-      );
-    };
-
-    socket.onmessage = (message) => {
-      const data = JSON.parse(message.data);
-      if (data[0] === 'EVENT' && data[2]?.kind === 23196) {
-        setRelayResponse(data[2]);
-        setStatus('Order confirmed by Mostro');
-        socket.close();
-      }
-    };
-
-    socket.onerror = () => {
-      setStatus('Relay connection error');
-    };
-
-    return event;
+  return { 
+    sendOrder, 
+    status, 
+    latestOrder, 
+    relayResponse,
+    isConnected 
   };
-
-  return { sendOrder, status, latestOrder, relayResponse };
 }
 
 export function MostroOrderStatus({ status }: { status: string | null }) {
