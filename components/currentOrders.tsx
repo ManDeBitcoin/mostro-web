@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import Image from 'next/image';
+import { RelayStatusIndicator } from '@/components/relay-status';
+import { useNostrSubscription } from '@/lib/nostr';
+import { Loader2 } from 'lucide-react';
+import type { Event } from 'nostr-tools';
 
-interface MostroOrderEvent {
+interface MostroOrderEvent extends Event {
   id: string;
   kind: number;
   content: string;
@@ -15,73 +18,38 @@ interface MostroOrderEvent {
 }
 
 export default function CurrentOrders() {
-  const [orders, setOrders] = useState<MostroOrderEvent[]>([]);
-  const [relayStatus, setRelayStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
-
-  useEffect(() => {
-    const RELAY = process.env.NEXT_PUBLIC_RELAY_URL;
-
-    if (!RELAY) {
-      console.error('Relay URL is not defined');
-      setRelayStatus('error');
-      return;
+  // Define filters for Mostro orders (kind 38383)
+  const filters = useMemo(() => [
+    {
+      kinds: [38383],
+      limit: 20
     }
+  ], []);
 
-    const socket = new WebSocket(RELAY);
-
-    socket.onopen = () => {
-      console.log('[Relay] Connected ✅');
-      setRelayStatus('connected');
-
-      const req = [
-        'REQ',
-        'mostro-orders',
-        {
-          kinds: [38383],
-          limit: 20
-        }
-      ];
-
-      socket.send(JSON.stringify(req));
-      console.log('[Relay] Request sent:', req);
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data[0] === 'EVENT' && data[2]?.kind === 38383) {
-          setOrders((prev) => [...prev, data[2]]);
-        } else {
-          console.log('[Relay] Skipped:', data);
-        }
-      } catch (error) {
-        console.error('[Relay] Error parsing:', error);
-      }
-    };
-
-    socket.onerror = (err) => {
-      console.error('[Relay] Connection error ❌', err);
-      setRelayStatus('error');
-    };
-
-    socket.onclose = () => {
-      console.log('[Relay] Connection closed ❎');
-    };
-
-    return () => socket.close();
-  }, []);
+  const { events: orders, isLoading, isConnected } = useNostrSubscription<MostroOrderEvent>(filters);
 
   return (
     <div className="p-6 max-w-4xl mx-auto text-white space-y-4">
-      <h2 className="text-xl font-bold mb-4">Live Orders</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold">Live Orders</h2>
+        <RelayStatusIndicator compact />
+      </div>
 
-      {relayStatus === 'connecting' && (
-        <div className="flex items-center justify-center py-12">
-          <Image src="/loading.gif" alt="Loading..." width={36} height={36} />
+      {!isConnected && (
+        <div className="flex items-center justify-center py-12 gap-2 text-neutral-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>Connecting to relay...</span>
         </div>
       )}
 
-      {orders.length === 0 && relayStatus === 'connected' && (
+      {isConnected && isLoading && (
+        <div className="flex items-center justify-center py-12 gap-2 text-neutral-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>Loading orders...</span>
+        </div>
+      )}
+
+      {isConnected && !isLoading && orders.length === 0 && (
         <p className="text-gray-400">No open orders found from Mostro daemon.</p>
       )}
 
