@@ -92,12 +92,7 @@ export default function UserProfile() {
   useEffect(() => {
     if (!isCurrentUser || !localData.pubkey) return
   
-    const RELAY = process.env.NEXT_PUBLIC_RELAY_URL
-    if (!RELAY) {
-      console.error('Relay URL is not defined for user orders')
-      return
-    }
-    const socket = new WebSocket(RELAY)
+    const socket = new WebSocket('wss://relay.mostro.network')
   
     socket.onopen = () => {
       const filter = {
