@@ -91,13 +91,17 @@ export function useMostroOrder() {
       sig,
     };
 
-    const RELAY = process.env.NEXT_PUBLIC_RELAY_URL;
-    if (!RELAY) {
+    // --- CORRECCIÓN: Parseo de la lista de relays ---
+    const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network';
+    const relayList = envRelays.split(',').map(url => url.trim());
+    const primaryRelay = relayList[0];
+
+    if (!primaryRelay) {
       setStatus('Relay URL is not defined');
       return null;
     }
 
-    const socket = new WebSocket(RELAY);
+    const socket = new WebSocket(primaryRelay);
 
     socket.onopen = () => {
       socket.send(JSON.stringify(['EVENT', event]));
