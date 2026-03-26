@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { sha256 } from '@noble/hashes/sha256';
 import { signAsync } from '@noble/secp256k1';
+import { nip19 } from 'nostr-tools';
 
 interface OrderPayload {
   type: string;
@@ -31,15 +32,33 @@ export function useMostroOrder() {
   const sendOrder = async (order: OrderPayload): Promise<NostrEvent | null> => {
     const privkey = localStorage.getItem('nostr-privkey');
     const pubkey = localStorage.getItem('nostr-pubkey');
+    // Obtenemos el pubkey del nodo del entorno
+    const mostroNpub = process.env.NEXT_PUBLIC_MOSTRO_PUBKEY;
 
-    if (!privkey || !pubkey) {
-      setStatus('Missing keys');
+    if (!privkey || !pubkey || !mostroNpub) {
+      setStatus(!mostroNpub ? 'Missing Mostro Pubkey' : 'Missing keys');
+      return null;
+    }
+
+    // --- NUEVA CORRECCIÓN: Decodificar npub a hex para el tag 'p' ---
+    let mostroHexPubkey = '';
+    try {
+      const decoded = nip19.decode(mostroNpub);
+      mostroHexPubkey = decoded.data as string;
+    } catch (e) {
+      console.error("Error decoding Mostro Npub:", e);
+      setStatus('Invalid Mostro Pubkey');
       return null;
     }
 
     const now = Math.floor(Date.now() / 1000);
     const orderId = crypto.randomUUID();
-    const tags: string[][] = [['d', orderId]];
+    
+    // --- CORRECCIÓN: Incluir el tag 'p' con el hex del nodo ---
+    const tags: string[][] = [
+      ['d', orderId],
+      ['p', mostroHexPubkey] 
+    ];
 
     const rumor: (object | string)[] = [
       {
@@ -91,7 +110,6 @@ export function useMostroOrder() {
       sig,
     };
 
-    // --- CORRECCIÓN: Parseo de la lista de relays ---
     const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network';
     const relayList = envRelays.split(',').map(url => url.trim());
     const primaryRelay = relayList[0];
