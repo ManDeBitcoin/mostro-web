@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
+import { nip19 } from 'nostr-tools'; // Importante para decodificar tu npub
 
 interface MostroOrderEvent {
   id: string;
@@ -20,8 +21,20 @@ export default function CurrentOrders() {
   useEffect(() => {
     const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network';
     const primaryRelay = envRelays.split(',')[0].trim();
+    const mostroNpub = process.env.NEXT_PUBLIC_MOSTRO_PUBKEY;
 
-    if (!primaryRelay) {
+    if (!primaryRelay || !mostroNpub) {
+      setRelayStatus('error');
+      return;
+    }
+
+    // --- NUEVO: Decodificamos el Pubkey de tu nodo para filtrar ---
+    let mostroHexPubkey = '';
+    try {
+      const decoded = nip19.decode(mostroNpub);
+      mostroHexPubkey = decoded.data as string;
+    } catch (e) {
+      console.error("Error decodificando el Pubkey del nodo:", e);
       setRelayStatus('error');
       return;
     }
@@ -30,7 +43,18 @@ export default function CurrentOrders() {
 
     socket.onopen = () => {
       setRelayStatus('connected');
-      const req = ['REQ', 'mostro-orders', { kinds: [38383], limit: 30 }];
+      
+      // --- FILTRO CRÍTICO: Agregamos '#p' con el hex de tu nodo ---
+      const req = [
+        'REQ', 
+        'mostro-orders', 
+        { 
+          kinds: [38383], 
+          '#p': [mostroHexPubkey], // Esto le dice al relay: "Solo envíame órdenes dirigidas a mi nodo"
+          limit: 50 
+        }
+      ];
+      
       socket.send(JSON.stringify(req));
     };
 
@@ -58,23 +82,16 @@ export default function CurrentOrders() {
   return (
     <div className="p-6 max-w-4xl mx-auto text-white space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold tracking-tight">P2P Order Book</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Mis Órdenes (Nodo Propio)</h2>
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${relayStatus === 'connected' ? 'bg-lime-500 animate-pulse' : 'bg-red-500'}`} />
           <span className="text-xs text-gray-400 uppercase">{relayStatus}</span>
         </div>
       </div>
 
-      {relayStatus === 'connecting' && (
-        <div className="flex flex-col items-center justify-center py-20 space-y-4">
-          <div className="w-8 h-8 border-4 border-lime-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500">Sincronizando con Nostr...</p>
-        </div>
-      )}
-
       {orders.length === 0 && relayStatus === 'connected' && (
         <div className="text-center py-20 border-2 border-dashed border-neutral-800 rounded-xl">
-          <p className="text-gray-500">No hay órdenes activas.</p>
+          <p className="text-gray-500 italic">Esperando órdenes vinculadas a tu Mostro Pubkey...</p>
         </div>
       )}
 
@@ -89,7 +106,7 @@ export default function CurrentOrders() {
           const isBuy = type.toLowerCase() === 'buy';
 
           return (
-            <Card key={order.id} className="bg-neutral-900 border-neutral-700 hover:border-lime-500/50 transition-all cursor-pointer group">
+            <Card key={order.id} className="bg-neutral-900 border-neutral-700 hover:border-lime-500/50 transition-all cursor-pointer">
               <CardContent className="p-0 flex">
                 <div className={`w-1.5 ${isBuy ? 'bg-lime-500' : 'bg-red-500'} shrink-0`} />
                 <div className="p-5 w-full">
@@ -106,26 +123,14 @@ export default function CurrentOrders() {
                       <div className={`text-sm font-bold ${Number(premium) >= 0 ? 'text-red-400' : 'text-lime-400'}`}>
                         {premium}% {Number(premium) >= 0 ? 'sobre' : 'bajo'} mercado
                       </div>
-                      <div className="text-[10px] text-gray-500 mt-1 uppercase">
-                        {new Date(order.created_at * 1000).toLocaleTimeString()}
-                      </div>
                     </div>
                   </div>
 
-                  <div className="bg-black/40 rounded-lg p-3 border border-neutral-800/50 mb-4">
-                    <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1 text-[8px]">Método de Pago</span>
-                    <p className="text-gray-300 line-clamp-2 whitespace-pre-line text-xs italic">
+                  <div className="bg-black/40 rounded-lg p-3 border border-neutral-800/50">
+                    <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Método de Pago</span>
+                    <p className="text-gray-300 line-clamp-2 text-xs italic">
                       {method}
                     </p>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <div className="text-[10px] text-neutral-600 font-mono">
-                      ID: {order.id.slice(0, 12)}...
-                    </div>
-                    <button className="text-xs font-bold text-lime-500 group-hover:underline">
-                      TOMAR ORDEN →
-                    </button>
                   </div>
                 </div>
               </CardContent>
