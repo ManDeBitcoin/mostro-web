@@ -9,6 +9,7 @@ export default function UserProfile() {
   const router = useRouter()
   const params = useParams()
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id
+  
   interface UserOrder {
     id: string
     type: string
@@ -19,18 +20,26 @@ export default function UserProfile() {
   const [userOrders, setUserOrders] = useState<UserOrder[]>([])
   const [relayStatus, setRelayStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
 
+  // --- CORRECCIÓN 1: Primer useEffect (Suscripción de prueba) ---
   useEffect(() => {
-    const RELAY = process.env.NEXT_PUBLIC_RELAY_URL 
-    if (!RELAY) {
+    // Tomamos la variable de entorno o usamos un fallback seguro
+    const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network'
+    
+    // Separamos por comas, limpiamos espacios y tomamos el primer relay
+    const relayList = envRelays.split(',').map(url => url.trim())
+    const primaryRelay = relayList[0]
+
+    if (!primaryRelay) {
       console.error('Relay URL is not defined')
       setRelayStatus('error')
       return
     }
-    const socket = new WebSocket(RELAY)
-  
+
+    // Inicializamos el WebSocket SOLO con el primer relay (string puro)
+    const socket = new WebSocket(primaryRelay)
+    
     socket.onopen = () => {
       setRelayStatus('connected')
-  
       // Enviamos un REQ simple a cualquier kind para testear respuesta
       const testSub = [
         'test-sub',
@@ -40,6 +49,7 @@ export default function UserProfile() {
       ]
       socket.send(JSON.stringify(['REQ', ...testSub]))
     }
+
     socket.onmessage = (msg) => {
       const data = JSON.parse(msg.data)
       if (data[0] === 'EVENT') {
@@ -47,9 +57,12 @@ export default function UserProfile() {
         console.log('Received event:', event)
       }
     }
-  
-    socket.onerror = () => setRelayStatus('error')
-  
+    
+    socket.onerror = (err) => {
+      console.error('WebSocket error on', primaryRelay, err)
+      setRelayStatus('error')
+    }
+    
     return () => socket.close()
   }, [])
 
@@ -89,11 +102,18 @@ export default function UserProfile() {
     setIsReady(true)
   }, [id])
 
+  // --- CORRECCIÓN 2: Tercer useEffect (Búsqueda de órdenes) ---
   useEffect(() => {
     if (!isCurrentUser || !localData.pubkey) return
-  
-    const socket = new WebSocket('wss://relay.mostro.network')
-  
+    
+    // Aplicamos la misma lógica para separar los relays de la variable de entorno
+    const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network'
+    const relayList = envRelays.split(',').map(url => url.trim())
+    const primaryRelay = relayList[0]
+
+    // Ya no conectamos hardcodeado, usamos la variable primaria
+    const socket = new WebSocket(primaryRelay)
+    
     socket.onopen = () => {
       const filter = {
         kinds: [38383], // Kind de órdenes según Mostro
@@ -101,7 +121,7 @@ export default function UserProfile() {
       }
       socket.send(JSON.stringify(['REQ', 'user-orders-sub', filter]))
     }
-  
+    
     socket.onmessage = (msg) => {
       try {
         const data = JSON.parse(msg.data)
@@ -114,7 +134,11 @@ export default function UserProfile() {
         console.error('Error parsing order from relay:', e)
       }
     }
-  
+
+    socket.onerror = (err) => {
+      console.error('WebSocket error fetching orders on', primaryRelay, err)
+    }
+    
     return () => {
       socket.close()
     }
