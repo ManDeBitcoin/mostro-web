@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import Image from 'next/image';
 
 interface MostroOrderEvent {
   id: string;
@@ -96,7 +95,6 @@ export default function CurrentOrders() {
                 <div className="p-5 w-full">
                   <div className="flex justify-between items-start mb-4">
                     <div className="space-y-1">
-                      {/* Badge manual sin dependencias */}
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-lime-500/10 text-lime-500' : 'bg-red-500/10 text-red-500'}`}>
                         {isBuy ? 'COMPRA' : 'VENTA'}
                       </span>
@@ -115,8 +113,8 @@ export default function CurrentOrders() {
                   </div>
 
                   <div className="bg-black/40 rounded-lg p-3 border border-neutral-800/50 mb-4">
-                    <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Método de Pago</span>
-                    <p className="text-sm text-gray-300 line-clamp-2 whitespace-pre-line text-xs">
+                    <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1 text-[8px]">Método de Pago</span>
+                    <p className="text-gray-300 line-clamp-2 whitespace-pre-line text-xs italic">
                       {method}
                     </p>
                   </div>
