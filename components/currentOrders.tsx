@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 
 interface MostroOrderEvent {
@@ -20,12 +19,10 @@ export default function CurrentOrders() {
   const [relayStatus, setRelayStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
 
   useEffect(() => {
-    // --- CORRECCIÓN DE RELAYS ---
     const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network';
     const primaryRelay = envRelays.split(',')[0].trim();
 
     if (!primaryRelay) {
-      console.error('Relay URL is not defined');
       setRelayStatus('error');
       return;
     }
@@ -33,18 +30,8 @@ export default function CurrentOrders() {
     const socket = new WebSocket(primaryRelay);
 
     socket.onopen = () => {
-      console.log('[Relay] Connected ✅ to', primaryRelay);
       setRelayStatus('connected');
-
-      const req = [
-        'REQ',
-        'mostro-orders',
-        {
-          kinds: [38383],
-          limit: 30
-        }
-      ];
-
+      const req = ['REQ', 'mostro-orders', { kinds: [38383], limit: 30 }];
       socket.send(JSON.stringify(req));
     };
 
@@ -54,26 +41,19 @@ export default function CurrentOrders() {
         if (data[0] === 'EVENT' && data[2]?.kind === 38383) {
           const newOrder = data[2];
           setOrders((prev) => {
-            // Evitar duplicados por ID
             if (prev.find(o => o.id === newOrder.id)) return prev;
-            // Ordenar por fecha (más recientes primero)
             return [newOrder, ...prev].sort((a, b) => b.created_at - a.created_at);
           });
         }
       } catch (error) {
-        console.error('[Relay] Error parsing:', error);
+        console.error('[Relay] Error:', error);
       }
     };
 
-    socket.onerror = (err) => {
-      console.error('[Relay] Connection error ❌', err);
-      setRelayStatus('error');
-    };
-
+    socket.onerror = () => setRelayStatus('error');
     return () => socket.close();
   }, []);
 
-  // Función para extraer datos de los tags de Mostro/LnP2PBot
   const getVal = (tags: string[][], key: string) => tags.find(t => t[0] === key);
 
   return (
@@ -89,13 +69,13 @@ export default function CurrentOrders() {
       {relayStatus === 'connecting' && (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
           <div className="w-8 h-8 border-4 border-lime-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 animate-pulse">Sincronizando con Nostr...</p>
+          <p className="text-gray-500">Sincronizando con Nostr...</p>
         </div>
       )}
 
       {orders.length === 0 && relayStatus === 'connected' && (
         <div className="text-center py-20 border-2 border-dashed border-neutral-800 rounded-xl">
-          <p className="text-gray-500">No hay órdenes activas en este momento.</p>
+          <p className="text-gray-500">No hay órdenes activas.</p>
         </div>
       )}
 
@@ -116,9 +96,10 @@ export default function CurrentOrders() {
                 <div className="p-5 w-full">
                   <div className="flex justify-between items-start mb-4">
                     <div className="space-y-1">
-                      <Badge className={`${isBuy ? 'bg-lime-500/10 text-lime-500' : 'bg-red-500/10 text-red-500'} border-none font-bold`}>
+                      {/* Badge manual sin dependencias */}
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-lime-500/10 text-lime-500' : 'bg-red-500/10 text-red-500'}`}>
                         {isBuy ? 'COMPRA' : 'VENTA'}
-                      </Badge>
+                      </span>
                       <div className="text-2xl font-black text-white">
                         {fiat} {minAmount} {maxAmount ? `- ${maxAmount}` : ''}
                       </div>
@@ -127,7 +108,7 @@ export default function CurrentOrders() {
                       <div className={`text-sm font-bold ${Number(premium) >= 0 ? 'text-red-400' : 'text-lime-400'}`}>
                         {premium}% {Number(premium) >= 0 ? 'sobre' : 'bajo'} mercado
                       </div>
-                      <div className="text-[10px] text-gray-500 uppercase mt-1">
+                      <div className="text-[10px] text-gray-500 mt-1 uppercase">
                         {new Date(order.created_at * 1000).toLocaleTimeString()}
                       </div>
                     </div>
@@ -135,7 +116,7 @@ export default function CurrentOrders() {
 
                   <div className="bg-black/40 rounded-lg p-3 border border-neutral-800/50 mb-4">
                     <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Método de Pago</span>
-                    <p className="text-sm text-gray-300 line-clamp-2 whitespace-pre-line">
+                    <p className="text-sm text-gray-300 line-clamp-2 whitespace-pre-line text-xs">
                       {method}
                     </p>
                   </div>
