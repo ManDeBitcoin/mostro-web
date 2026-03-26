@@ -25,15 +25,20 @@ export default function OrderDetailsPage() {
     if (!id) return;
 
     console.log('Listening for order ID:', id);
-    const RELAY = process.env.NEXT_PUBLIC_RELAY_URL;
-    console.log('Relay URL:', RELAY);
+    
+    // --- CORRECCIÓN: Parseo de la lista de relays ---
+    const envRelays = process.env.NEXT_PUBLIC_RELAY_URL || 'wss://relay.mostro.network';
+    const relayList = envRelays.split(',').map(url => url.trim());
+    const primaryRelay = relayList[0];
 
-    if (!RELAY) {
+    console.log('Primary Relay URL:', primaryRelay);
+
+    if (!primaryRelay) {
       console.error('Relay URL is not defined');
       return;
     }
 
-    const socket = new WebSocket(RELAY);
+    const socket = new WebSocket(primaryRelay);
 
     socket.onopen = () => {
       setRelayConnected(true);
